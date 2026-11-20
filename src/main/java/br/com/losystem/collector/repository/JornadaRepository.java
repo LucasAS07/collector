@@ -113,4 +113,31 @@ public class JornadaRepository {
             }
         }
     }
+
+    public boolean existePorIdExterno(
+            Connection connection,
+            String idExterno
+    ) throws SQLException {
+
+        String sql = """
+            SELECT EXISTS (
+                SELECT 1
+                FROM jornada
+                WHERE id_externo = ?
+            )
+            """;
+
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+
+            ps.setString(1, idExterno);
+
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getBoolean(1);
+                }
+            }
+        }
+
+        return false;
+    }
 }

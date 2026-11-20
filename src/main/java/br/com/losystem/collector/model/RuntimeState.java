@@ -28,7 +28,7 @@ public record RuntimeState(TachographState tachograph_state) {
             BigDecimal distanceKm,
             BigDecimal maxSpeedKph,
             JsonNode declaredActivity,
-            JsonNode currentSegment,
+            Segment currentSegment,
             List<Segment> segments,
             List<JsonNode> corrections,
             List<Warning> warnings,

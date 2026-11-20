@@ -1,5 +1,6 @@
 package br.com.losystem.collector.repository;
 
+import br.com.losystem.collector.model.RuntimeState;
 import br.com.losystem.collector.model.TripHistory;
 
 import java.sql.Connection;
@@ -83,5 +84,40 @@ public class CaminhaoRepository {
 
         return null;
     }
+
+
+    public Long buscarOuCriar(
+            Connection connection,
+            RuntimeState.Truck truck
+    ) throws SQLException {
+
+        if (truck == null) {
+            throw new IllegalArgumentException(
+                    "Os dados do caminhão não foram informados."
+            );
+        }
+
+        if (truck.licensePlate() == null ||
+                truck.licensePlate().isBlank()) {
+
+            throw new IllegalArgumentException(
+                    "A placa do caminhão é obrigatória."
+            );
+        }
+
+
+        return buscarOuCriar(
+                connection,
+                new TripHistory.Truck(
+                        truck.make(),
+                        truck.model(),
+                        truck.licensePlate(),
+                        null,
+                        null
+                )
+        );
+
+    }
+
 
 }
