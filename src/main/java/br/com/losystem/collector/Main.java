@@ -1,6 +1,8 @@
 package br.com.losystem.collector;
 
+import br.com.losystem.collector.config.ColetorLock;
 import br.com.losystem.collector.config.DatabaseConfig;
+import br.com.losystem.collector.repository.ImportacaoExecucaoRepository;
 import br.com.losystem.collector.scheduler.ColetaScheduler;
 import br.com.losystem.collector.service.ColetaService;
 
@@ -70,17 +72,55 @@ public class Main {
                             runtimeStatePath
                     );
 
+            ColetorLock coletorLock = new ColetorLock(databaseConfig);
+
             ColetaScheduler scheduler = new ColetaScheduler();
 
             Runtime.getRuntime().addShutdownHook(
                     new Thread(() -> {
-                        System.out.println(
-                                "\nEncerrando coletor..."
-                        );
+                        System.out.println("\nEncerrando coletor...");
 
                         scheduler.parar();
+
+                        try {
+                            coletorLock.close();
+                            System.out.println("Bloqueio do coletor liberado.");
+                        } catch (Exception e) {
+                            System.err.println(
+                                    "Erro ao liberar bloqueio: " + e.getMessage()
+                            );
+                        }
                     })
             );
+
+            try (Connection connection = databaseConfig.getConnection()) {
+
+                connection.setAutoCommit(false);
+
+                try {
+                    ImportacaoExecucaoRepository repository =
+                            new ImportacaoExecucaoRepository();
+
+                    int recuperadas =
+                            repository.recuperarExecucoesAbandonadas(connection);
+
+                    connection.commit();
+
+                    System.out.println(
+                            "Execuções abandonadas recuperadas: " + recuperadas
+                    );
+
+                } catch (Exception e) {
+
+                    try {
+                        connection.rollback();
+                    } catch (Exception erroRollback) {
+                        e.addSuppressed(erroRollback);
+                    }
+
+                    throw e;
+                }
+            }
 
             System.out.println("\nColetor iniciado!");
             System.out.println(
@@ -105,6 +145,7 @@ public class Main {
             );
 
             e.printStackTrace();
+            System.exit(1);
         }
     }
 

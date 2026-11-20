@@ -33,4 +33,10 @@ public class RuntimeStateReader {
         }
     }
 
+
+    public RuntimeState read(byte[] conteudo) throws IOException {
+        return objectMapper.readValue(conteudo, RuntimeState.class);
+    }
+
+
 }

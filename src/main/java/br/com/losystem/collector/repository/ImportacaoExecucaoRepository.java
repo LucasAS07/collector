@@ -83,4 +83,24 @@ public class ImportacaoExecucaoRepository {
         }
     }
 
+
+    public int recuperarExecucoesAbandonadas(
+            Connection connection
+    ) throws SQLException {
+
+        String sql = """
+            UPDATE importacao_execucao
+            SET
+                status = 'ERRO',
+                finalizado_em = NOW(),
+                mensagem_erro = 'Execução interrompida inesperadamente.'
+            WHERE status = 'EM_ANDAMENTO'
+            """;
+
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            return ps.executeUpdate();
+        }
+    }
+
+
 }

@@ -3,10 +3,11 @@ package br.com.losystem.collector.service;
 import br.com.losystem.collector.config.DatabaseConfig;
 import br.com.losystem.collector.model.RuntimeState;
 import br.com.losystem.collector.model.TripHistory;
+import br.com.losystem.collector.reader.ArquivoSnapshotReader;
 import br.com.losystem.collector.reader.RuntimeStateReader;
 import br.com.losystem.collector.reader.TripHistoryReader;
 import br.com.losystem.collector.repository.*;
-import br.com.losystem.collector.util.HashUtils;
+import br.com.losystem.collector.util.ArquivoSnapshot;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -64,8 +65,12 @@ public class ColetaService {
         String caminhoRuntime =
                 runtimeStatePath.toAbsolutePath().toString();
 
-        String hashAtualRuntime =
-                HashUtils.calcularSHA256(runtimeStatePath);
+        ArquivoSnapshotReader snapshotReader = new ArquivoSnapshotReader();
+
+        ArquivoSnapshot snapshotRuntime =
+                snapshotReader.ler(runtimeStatePath);
+
+        String hashAtualRuntime = snapshotRuntime.hash();
 
         String hashAnteriorRuntime;
         Long runtimeArquivoId;
@@ -127,7 +132,7 @@ public class ColetaService {
                     new RuntimeStateReader();
 
             RuntimeState runtimeState =
-                    runtimeReader.read(runtimeStatePath);
+                    runtimeReader.read(snapshotRuntime.conteudo());
 
             RuntimeState.TachographState tachograph =
                     runtimeState.tachograph_state();
@@ -292,6 +297,7 @@ public class ColetaService {
     }
 
 
+
     private static void importarHistoricoViagens(
             DatabaseConfig databaseConfig,
             Path arquivo
@@ -313,7 +319,13 @@ public class ColetaService {
                 new CaminhaoRepository();
 
         String caminho = arquivo.toAbsolutePath().toString();
-        String hashAtual = HashUtils.calcularSHA256(arquivo);
+
+        ArquivoSnapshotReader snapshotReader =
+                new ArquivoSnapshotReader();
+
+        ArquivoSnapshot snapshot = snapshotReader.ler(arquivo);
+
+        String hashAtual = snapshot.hash();
 
         Long arquivoId;
         String hashAnterior;
@@ -382,7 +394,8 @@ public class ColetaService {
         try {
 
             TripHistoryReader reader = new TripHistoryReader();
-            TripHistory history = reader.read(arquivo);
+
+            TripHistory history = reader.read(snapshot.conteudo());
 
             registrosLidos = history.items() == null
                     ? 0
@@ -432,20 +445,6 @@ public class ColetaService {
                         }
                     }
 
-                    connection.commit();
-
-                } catch (Exception e) {
-                    connection.rollback();
-                    throw e;
-                }
-            }
-
-            try (Connection connection = databaseConfig.getConnection()) {
-
-                connection.setAutoCommit(false);
-
-                try {
-
                     execucaoRepository.finalizar(
                             connection,
                             execucaoId,
@@ -465,7 +464,9 @@ public class ColetaService {
                     connection.commit();
 
                 } catch (Exception e) {
+
                     connection.rollback();
+
                     throw e;
                 }
             }
@@ -482,6 +483,7 @@ public class ColetaService {
                 connection.setAutoCommit(false);
 
                 try {
+
                     execucaoRepository.finalizar(
                             connection,
                             execucaoId,
@@ -495,14 +497,21 @@ public class ColetaService {
                     connection.commit();
 
                 } catch (Exception erroRegistro) {
+
                     connection.rollback();
+
                     e.addSuppressed(erroRegistro);
                 }
+
+            } catch (Exception erroConexao) {
+
+                e.addSuppressed(erroConexao);
             }
 
             throw e;
         }
     }
+
 
     private void processarJornada(
             Connection connection,
@@ -535,10 +544,18 @@ public class ColetaService {
 
         Long caminhaoId = null;
 
-        if (shift.truck() != null) {
+        if (shift.truck() != null
+                && shift.truck().licensePlate() != null
+                && !shift.truck().licensePlate().isBlank()) {
+
             caminhaoId = caminhaoRepository.buscarOuCriar(
                     connection,
                     shift.truck()
+            );
+
+        } else {
+            System.out.println(
+                    "Caminhão sem placa identificada. Jornada será salva sem vínculo."
             );
         }
 

@@ -33,4 +33,10 @@ public class TripHistoryReader {
             return objectMapper.readValue(reader, TripHistory.class);
         }
     }
+
+
+    public TripHistory read(byte[] conteudo) throws IOException {
+        return objectMapper.readValue(conteudo, TripHistory.class);
+    }
+
 }
