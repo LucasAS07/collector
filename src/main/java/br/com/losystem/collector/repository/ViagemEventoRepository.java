@@ -10,6 +10,7 @@ import java.security.NoSuchAlgorithmException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.List;
 
@@ -85,14 +86,15 @@ public class ViagemEventoRepository {
         return inseridos;
     }
 
-    private String gerarIdExterno(
+
+     String gerarIdExterno(
             String viagemIdExterno,
             TripHistory.TripEvent evento
     ) throws SQLException {
 
         try {
             String conteudo = objectMapper.writeValueAsString(
-                    List.of(
+                    Arrays.asList(
                             viagemIdExterno,
                             evento.type(),
                             evento.title(),
@@ -118,5 +120,6 @@ public class ViagemEventoRepository {
             );
         }
     }
+
 
 }
