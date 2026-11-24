@@ -1,42 +1,41 @@
+
 package br.com.losystem.collector.reader;
 
 import br.com.losystem.collector.model.RuntimeState;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 
 public class RuntimeStateReader {
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper;
 
-    public RuntimeState read(Path filePath) throws IOException {
-
-        if (!Files.exists(filePath)) {
-            throw new IOException(
-                    "Arquivo não encontrado: " + filePath
-            );
-        }
-
-        if (!Files.isRegularFile(filePath)) {
-            throw new IOException(
-                    "O caminho informado não é um arquivo: " + filePath
-            );
-        }
-
-        try (var reader = Files.newBufferedReader(filePath)) {
-            return objectMapper.readValue(
-                    reader,
-                    RuntimeState.class
-            );
-        }
+    public RuntimeStateReader() {
+        this.objectMapper = new ObjectMapper();
+        this.objectMapper.configure(
+                DeserializationFeature.FAIL_ON_TRAILING_TOKENS,
+                true
+        );
     }
-
 
     public RuntimeState read(byte[] conteudo) throws IOException {
-        return objectMapper.readValue(conteudo, RuntimeState.class);
+
+        if (conteudo == null || conteudo.length == 0) {
+            throw new IOException(
+                    "O conteúdo do runtime-state.json está vazio ou nulo."
+            );
+        }
+
+        RuntimeState runtimeState =
+                objectMapper.readValue(conteudo, RuntimeState.class);
+
+        if (runtimeState == null) {
+            throw new IOException(
+                    "O JSON do runtime-state.json não produziu um objeto válido."
+            );
+        }
+
+        return runtimeState;
     }
-
-
 }
