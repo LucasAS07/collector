@@ -129,7 +129,15 @@ public class Main {
 
             scheduler.iniciar(() -> {
                 try {
+                    if (!coletorLock.garantirBloqueio()) {
+                        System.err.println(
+                                "Coleta ignorada: outra instância possui o bloqueio."
+                        );
+                        return;
+                    }
+
                     coletaService.executarCicloColeta();
+
                 } catch (Exception e) {
                     System.err.println(
                             "Erro durante o ciclo de coleta: " + e.getMessage()

@@ -256,7 +256,12 @@ public class ColetaService {
 
                 } catch (Exception e) {
 
-                    connection.rollback();
+                    try {
+                        connection.rollback();
+                    } catch (SQLException erroRollback) {
+                        e.addSuppressed(erroRollback);
+                    }
+
                     throw e;
                 }
             }
@@ -465,7 +470,11 @@ public class ColetaService {
 
                 } catch (Exception e) {
 
-                    connection.rollback();
+                    try {
+                        connection.rollback();
+                    } catch (SQLException erroRollback) {
+                        e.addSuppressed(erroRollback);
+                    }
 
                     throw e;
                 }

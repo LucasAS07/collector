@@ -1,3 +1,4 @@
+
 package br.com.losystem.collector.config;
 
 import java.sql.Connection;
@@ -5,19 +6,47 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 
-// Bloqueia o banco para que 2 instacias do coletor não consiga coletar ao mesmo tempo.
-public class ColetorLock {
+public class ColetorLock implements AutoCloseable {
 
     private static final int LOCK_ID_1 = 20261120;
     private static final int LOCK_ID_2 = 1;
 
-    private final Connection connection;
+    private final DatabaseConfig databaseConfig;
+
+    private Connection connection;
     private boolean adquirido;
 
     public ColetorLock(DatabaseConfig databaseConfig)
             throws SQLException {
 
-        this.connection = databaseConfig.getConnection();
+        this.databaseConfig = databaseConfig;
+
+        if (!garantirBloqueio()) {
+            throw new IllegalStateException(
+                    "Já existe uma instância do coletor em execução."
+            );
+        }
+    }
+
+    public synchronized boolean garantirBloqueio()
+            throws SQLException {
+
+        if (adquirido && connection != null) {
+
+            try (PreparedStatement ps =
+                         connection.prepareStatement("SELECT 1");
+                 ResultSet rs = ps.executeQuery()) {
+
+                if (rs.next()) {
+                    return true;
+                }
+
+            } catch (SQLException e) {
+                fecharConexaoLocal();
+            }
+        }
+
+        connection = databaseConfig.getConnection();
 
         try (PreparedStatement ps = connection.prepareStatement(
                 "SELECT pg_try_advisory_lock(?, ?)")) {
@@ -27,50 +56,38 @@ public class ColetorLock {
 
             try (ResultSet rs = ps.executeQuery()) {
 
-                if (rs.next()) {
-                    adquirido = rs.getBoolean(1);
+                if (rs.next() && rs.getBoolean(1)) {
+                    adquirido = true;
+                    return true;
                 }
             }
 
-            if (!adquirido) {
-                connection.close();
-
-                throw new IllegalStateException(
-                        "Já existe uma instância do coletor em execução."
-                );
-            }
+            fecharConexaoLocal();
+            return false;
 
         } catch (SQLException | RuntimeException e) {
 
-            if (!connection.isClosed()) {
-                connection.close();
-            }
-
+            fecharConexaoLocal();
             throw e;
         }
     }
 
-    public void close() throws SQLException {
+    private void fecharConexaoLocal() {
 
-        if (!adquirido || connection.isClosed()) {
-            return;
-        }
+        adquirido = false;
 
-        try (PreparedStatement ps = connection.prepareStatement(
-                "SELECT pg_advisory_unlock(?, ?)")) {
-
-            ps.setInt(1, LOCK_ID_1);
-            ps.setInt(2, LOCK_ID_2);
-
-            try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) {
-                    adquirido = !rs.getBoolean(1);
-                }
+        if (connection != null) {
+            try {
+                connection.close();
+            } catch (SQLException ignored) {
             }
 
-        } finally {
-            connection.close();
+            connection = null;
         }
     }
 
+    @Override
+    public synchronized void close() {
+        fecharConexaoLocal();
+    }
 }
