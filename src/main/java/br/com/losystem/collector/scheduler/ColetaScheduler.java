@@ -1,10 +1,15 @@
 package br.com.losystem.collector.scheduler;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 public class ColetaScheduler {
+
+    private static final Logger logger = LoggerFactory.getLogger(ColetaScheduler.class);
 
     private final ScheduledExecutorService executor =
             Executors.newSingleThreadScheduledExecutor(r -> {
@@ -25,7 +30,7 @@ public class ColetaScheduler {
 
     public void parar() {
 
-        System.out.println("Solicitando encerramento do agendador...");
+        logger.info("Solicitando encerramento do agendador...");
 
         executor.shutdown();
 
@@ -37,12 +42,9 @@ public class ColetaScheduler {
             );
 
             if (finalizado) {
-                System.out.println("Agendador encerrado corretamente.");
+                logger.info("Agendador encerrado corretamente.");
             } else {
-
-                System.out.println(
-                        "Tempo limite excedido. Solicitando interrupção..."
-                );
+                logger.warn("Tempo limite excedido. Solicitando interrupção...");
 
                 executor.shutdownNow();
 
@@ -52,21 +54,14 @@ public class ColetaScheduler {
                 );
 
                 if (!interrompido) {
-                    System.err.println(
-                            "O agendador não encerrou completamente."
-                    );
+                    logger.error("O agendador não encerrou completamente.");
                 }
             }
 
         } catch (InterruptedException e) {
-
             executor.shutdownNow();
-
             Thread.currentThread().interrupt();
-
-            System.err.println(
-                    "Encerramento interrompido durante a espera."
-            );
+            logger.warn("Encerramento interrompido durante a espera.", e);
         }
     }
 

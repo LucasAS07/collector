@@ -5,6 +5,8 @@ import br.com.losystem.collector.config.DatabaseConfig;
 import br.com.losystem.collector.repository.ImportacaoExecucaoRepository;
 import br.com.losystem.collector.scheduler.ColetaScheduler;
 import br.com.losystem.collector.service.ColetaService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.InputStream;
 import java.nio.file.Path;
@@ -14,6 +16,8 @@ import java.util.Properties;
 public class Main {
 
     public static void main(String[] args) {
+
+        final Logger logger = LoggerFactory.getLogger(Main.class);
 
         try {
             Properties properties = new Properties();
@@ -47,10 +51,8 @@ public class Main {
             try (Connection connection =
                          databaseConfig.getConnection()) {
 
-                System.out.println("PostgreSQL conectado!");
-                System.out.println(
-                        "Banco: " + connection.getCatalog()
-                );
+                logger.info("PostgreSQL conectado!");
+                logger.info("Banco: {}", connection.getCatalog());
             }
 
             String rbrPath = properties.getProperty("rbr.path");
@@ -78,17 +80,15 @@ public class Main {
 
             Runtime.getRuntime().addShutdownHook(
                     new Thread(() -> {
-                        System.out.println("\nEncerrando coletor...");
+                        logger.info("Encerrando coletor...");
 
                         scheduler.parar();
 
                         try {
                             coletorLock.close();
-                            System.out.println("Bloqueio do coletor liberado.");
+                            logger.info("Bloqueio do coletor liberado.");
                         } catch (Exception e) {
-                            System.err.println(
-                                    "Erro ao liberar bloqueio: " + e.getMessage()
-                            );
+                            logger.error("Erro ao liberar bloqueio: ", e);
                         }
                     })
             );
@@ -106,9 +106,7 @@ public class Main {
 
                     connection.commit();
 
-                    System.out.println(
-                            "Execuções abandonadas recuperadas: " + recuperadas
-                    );
+                    logger.info("Execuções abandonadas recuperadas: {}",recuperadas);
 
                 } catch (Exception e) {
 
@@ -122,37 +120,26 @@ public class Main {
                 }
             }
 
-            System.out.println("\nColetor iniciado!");
-            System.out.println(
-                    "Intervalo de verificação: 5 segundos."
-            );
+            logger.info("Coletor iniciado!");
+            logger.info("Intervalo de verificação: 5 segundos.");
 
             scheduler.iniciar(() -> {
                 try {
                     if (!coletorLock.garantirBloqueio()) {
-                        System.err.println(
-                                "Coleta ignorada: outra instância possui o bloqueio."
-                        );
+                        logger.warn("Coleta ignorada: outra instância possui o bloqueio.");
                         return;
                     }
 
                     coletaService.executarCicloColeta();
 
                 } catch (Exception e) {
-                    System.err.println(
-                            "Erro durante o ciclo de coleta: " + e.getMessage()
-                    );
+                    logger.error("Erro durante o ciclo de coleta: ", e);
                     e.printStackTrace();
                 }
             });
 
         } catch (Exception e) {
-
-            System.err.println(
-                    "Erro ao iniciar coletor: " + e.getMessage()
-            );
-
-            e.printStackTrace();
+            logger.error("Erro ao iniciar coletor", e);
             System.exit(1);
         }
     }

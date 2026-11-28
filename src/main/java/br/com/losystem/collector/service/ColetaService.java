@@ -8,6 +8,8 @@ import br.com.losystem.collector.reader.RuntimeStateReader;
 import br.com.losystem.collector.reader.TripHistoryReader;
 import br.com.losystem.collector.repository.*;
 import br.com.losystem.collector.util.ArquivoSnapshot;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -15,6 +17,7 @@ import java.sql.SQLException;
 
 public class ColetaService {
 
+    private static final Logger logger = LoggerFactory.getLogger(ColetaService.class);
     private final DatabaseConfig databaseConfig;
     private final Path tripHistoryPath;
     private final Path runtimeStatePath;
@@ -32,133 +35,76 @@ public class ColetaService {
 
     public void executarCicloColeta() throws Exception {
 
-        ImportacaoExecucaoRepository execucaoRepository =
-                new ImportacaoExecucaoRepository();
+        long inicioCiclo = System.nanoTime();
+        try {
+            ImportacaoExecucaoRepository execucaoRepository =
+                    new ImportacaoExecucaoRepository();
 
-        ArquivoMonitoradoRepository arquivoRepository =
-                new ArquivoMonitoradoRepository();
+            ArquivoMonitoradoRepository arquivoRepository =
+                    new ArquivoMonitoradoRepository();
 
-        CaminhaoRepository caminhaoRepository =
-                new CaminhaoRepository();
+            CaminhaoRepository caminhaoRepository =
+                    new CaminhaoRepository();
 
-        JornadaRepository jornadaRepository =
-                new JornadaRepository();
+            JornadaRepository jornadaRepository =
+                    new JornadaRepository();
 
-        JornadaSegmentoRepository segmentoRepository =
-                new JornadaSegmentoRepository();
+            JornadaSegmentoRepository segmentoRepository =
+                    new JornadaSegmentoRepository();
 
-        JornadaAlertaRepository alertaRepository =
-                new JornadaAlertaRepository();
+            JornadaAlertaRepository alertaRepository =
+                    new JornadaAlertaRepository();
 
-        JornadaCorrecaoRepository jornadaCorrecaoRepository =
-                new JornadaCorrecaoRepository();
+            JornadaCorrecaoRepository jornadaCorrecaoRepository =
+                    new JornadaCorrecaoRepository();
 
-        System.out.println("\n================================");
-        System.out.println("INICIANDO CICLO DE COLETA");
-        System.out.println("================================");
+            logger.info("========== INICIANDO CICLO DE COLETA ==========");
 
-        importarHistoricoViagens(
-                databaseConfig,
-                tripHistoryPath
-        );
-
-        String caminhoRuntime =
-                runtimeStatePath.toAbsolutePath().toString();
-
-        ArquivoSnapshotReader snapshotReader = new ArquivoSnapshotReader();
-
-        ArquivoSnapshot snapshotRuntime =
-                snapshotReader.ler(runtimeStatePath);
-
-        String hashAtualRuntime = snapshotRuntime.hash();
-
-        String hashAnteriorRuntime;
-        Long runtimeArquivoId;
-
-        try (Connection connection = databaseConfig.getConnection()) {
-
-            runtimeArquivoId = arquivoRepository.buscarOuCriar(
-                    connection,
-                    caminhoRuntime,
-                    runtimeStatePath.getFileName().toString()
+            importarHistoricoViagens(
+                    databaseConfig,
+                    tripHistoryPath
             );
 
-            hashAnteriorRuntime =
-                    arquivoRepository.buscarHashPorCaminho(
-                            connection,
-                            caminhoRuntime
-                    );
-        }
+            String caminhoRuntime =
+                    runtimeStatePath.toAbsolutePath().toString();
 
-        if (hashAtualRuntime.equals(hashAnteriorRuntime)) {
+            ArquivoSnapshotReader snapshotReader = new ArquivoSnapshotReader();
 
-            System.out.println("\nruntime-state.json sem alterações.");
-            System.out.println("Processamento do tacógrafo ignorado.");
-
-            return;
-        }
-
-        Long execucaoId;
-
-        try (Connection connection = databaseConfig.getConnection()) {
-
-            connection.setAutoCommit(false);
+            ArquivoSnapshot snapshotRuntime;
 
             try {
-
-                execucaoId = execucaoRepository.iniciar(
-                        connection,
-                        runtimeArquivoId
-                );
-
-                connection.commit();
-
+                snapshotRuntime = snapshotReader.ler(runtimeStatePath);
             } catch (Exception e) {
-                connection.rollback();
+                logger.error("Falha ao ler o arquivo {}: {}", runtimeStatePath.getFileName(), e.getMessage());
                 throw e;
             }
-        }
 
-        int registrosLidos = 0;
-        int registrosInseridos = 0;
-        int registrosAtualizados = 0;
+            String hashAtualRuntime = snapshotRuntime.hash();
 
-        try {
+            String hashAnteriorRuntime;
+            Long runtimeArquivoId;
 
-            System.out.println("\nruntime-state.json foi alterado.");
-            System.out.println("Iniciando processamento do tacógrafo...");
+            try (Connection connection = databaseConfig.getConnection()) {
 
-            RuntimeStateReader runtimeReader =
-                    new RuntimeStateReader();
-
-            RuntimeState runtimeState =
-                    runtimeReader.read(snapshotRuntime.conteudo());
-
-            RuntimeState.TachographState tachograph =
-                    runtimeState.tachograph_state();
-
-            if (tachograph == null) {
-                throw new IllegalStateException(
-                        "Estado do tacógrafo não encontrado no runtime-state.json."
+                runtimeArquivoId = arquivoRepository.buscarOuCriar(
+                        connection,
+                        caminhoRuntime,
+                        runtimeStatePath.getFileName().toString()
                 );
+
+                hashAnteriorRuntime =
+                        arquivoRepository.buscarHashPorCaminho(
+                                connection,
+                                caminhoRuntime
+                        );
             }
 
-            System.out.println("\n========== TACÓGRAFO ==========");
-            System.out.println("Versão: " + tachograph.version());
+            if (hashAtualRuntime.equals(hashAnteriorRuntime)) {
+                logger.info("runtime-state.json sem alterações. Processamento do tacógrafo ignorado.");
+                return;
+            }
 
-            System.out.println(
-                    "Jornadas registradas: " +
-                            (tachograph.history() == null
-                                    ? 0
-                                    : tachograph.history().size())
-            );
-
-            System.out.println(
-                    tachograph.activeShift() != null
-                            ? "Existe uma jornada ativa: " +
-                            tachograph.activeShift().id()
-                            : "Nenhuma jornada ativa."
-            );
+            Long execucaoId;
 
             try (Connection connection = databaseConfig.getConnection()) {
 
@@ -166,9 +112,93 @@ public class ColetaService {
 
                 try {
 
-                    if (tachograph.history() != null) {
+                    execucaoId = execucaoRepository.iniciar(
+                            connection,
+                            runtimeArquivoId
+                    );
 
-                        for (RuntimeState.Shift shift : tachograph.history()) {
+                    connection.commit();
+
+                } catch (Exception e) {
+                    connection.rollback();
+                    throw e;
+                }
+            }
+
+            int registrosLidos = 0;
+            int registrosInseridos = 0;
+            int registrosAtualizados = 0;
+
+            try {
+
+                logger.info("runtime-state.json alterado. Iniciando processamento do tacógrafo.");
+
+                RuntimeStateReader runtimeReader =
+                        new RuntimeStateReader();
+
+                RuntimeState runtimeState =
+                        runtimeReader.read(snapshotRuntime.conteudo());
+
+                RuntimeState.TachographState tachograph =
+                        runtimeState.tachograph_state();
+
+                if (tachograph == null) {
+                    throw new IllegalStateException(
+                            "Estado do tacógrafo não encontrado no runtime-state.json."
+                    );
+                }
+
+                logger.info(
+                        "Tacógrafo - versão: {}, jornadas registradas: {}, jornada ativa: {}",
+                        tachograph.version(),
+                        tachograph.history() == null ? 0 : tachograph.history().size(),
+                        tachograph.activeShift() != null
+                                ? tachograph.activeShift().id()
+                                : "nenhuma"
+                );
+
+                try (Connection connection = databaseConfig.getConnection()) {
+
+                    connection.setAutoCommit(false);
+
+                    try {
+
+                        if (tachograph.history() != null) {
+
+                            for (RuntimeState.Shift shift : tachograph.history()) {
+
+                                boolean jaExiste =
+                                        jornadaRepository.existePorIdExterno(
+                                                connection,
+                                                shift.id()
+                                        );
+
+                                processarJornada(
+                                        connection,
+                                        shift,
+                                        caminhaoRepository,
+                                        jornadaRepository,
+                                        segmentoRepository,
+                                        alertaRepository,
+                                        jornadaCorrecaoRepository
+                                );
+
+                                registrosLidos++;
+
+                                if (jaExiste) {
+                                    registrosAtualizados++;
+                                } else {
+                                    registrosInseridos++;
+                                }
+                            }
+                        }
+
+                        if (tachograph.activeShift() != null) {
+
+                            logger.info("Processando jornada ativa.");
+
+                            RuntimeState.Shift shift =
+                                    tachograph.activeShift();
 
                             boolean jaExiste =
                                     jornadaRepository.existePorIdExterno(
@@ -194,110 +224,81 @@ public class ColetaService {
                                 registrosInseridos++;
                             }
                         }
-                    }
 
-                    if (tachograph.activeShift() != null) {
-
-                        System.out.println("\nProcessando jornada ativa...");
-
-                        RuntimeState.Shift shift =
-                                tachograph.activeShift();
-
-                        boolean jaExiste =
-                                jornadaRepository.existePorIdExterno(
-                                        connection,
-                                        shift.id()
-                                );
-
-                        processarJornada(
+                        execucaoRepository.finalizar(
                                 connection,
-                                shift,
-                                caminhaoRepository,
-                                jornadaRepository,
-                                segmentoRepository,
-                                alertaRepository,
-                                jornadaCorrecaoRepository
+                                execucaoId,
+                                "SUCESSO",
+                                registrosLidos,
+                                registrosInseridos,
+                                registrosAtualizados,
+                                null
                         );
 
-                        registrosLidos++;
+                        arquivoRepository.atualizarHash(
+                                connection,
+                                runtimeArquivoId,
+                                hashAtualRuntime
+                        );
 
-                        if (jaExiste) {
-                            registrosAtualizados++;
-                        } else {
-                            registrosInseridos++;
+                        connection.commit();
+
+                        logger.info(
+                                "Importação do tacógrafo concluída com sucesso. " +
+                                        "Jornadas lidas: {}, inseridas: {}, atualizadas: {}.",
+                                registrosLidos,
+                                registrosInseridos,
+                                registrosAtualizados
+                        );
+
+                    } catch (Exception e) {
+                        try {
+                            connection.rollback();
+                        } catch (SQLException erroRollback) {
+                            e.addSuppressed(erroRollback);
                         }
+                        throw e;
                     }
+                }
 
-                    execucaoRepository.finalizar(
-                            connection,
-                            execucaoId,
-                            "SUCESSO",
-                            registrosLidos,
-                            registrosInseridos,
-                            registrosAtualizados,
-                            null
-                    );
+            } catch (Exception e) {
 
-                    arquivoRepository.atualizarHash(
-                            connection,
-                            runtimeArquivoId,
-                            hashAtualRuntime
-                    );
+                try (Connection connection = databaseConfig.getConnection()) {
 
-                    connection.commit();
-
-                    System.out.println(
-                            "\nImportação do tacógrafo concluída com sucesso!"
-                    );
-
-                    System.out.println("Jornadas lidas: " + registrosLidos);
-                    System.out.println("Inseridas: " + registrosInseridos);
-                    System.out.println("Atualizadas: " + registrosAtualizados);
-
-                } catch (Exception e) {
+                    connection.setAutoCommit(false);
 
                     try {
+
+                        execucaoRepository.finalizar(
+                                connection,
+                                execucaoId,
+                                "ERRO",
+                                registrosLidos,
+                                registrosInseridos,
+                                registrosAtualizados,
+                                e.getMessage()
+                        );
+
+                        connection.commit();
+
+                    } catch (Exception erroRegistro) {
+
                         connection.rollback();
-                    } catch (SQLException erroRollback) {
-                        e.addSuppressed(erroRollback);
+                        e.addSuppressed(erroRegistro);
                     }
 
-                    throw e;
-                }
-            }
+                } catch (Exception erroConexao) {
 
-        } catch (Exception e) {
-
-            try (Connection connection = databaseConfig.getConnection()) {
-
-                connection.setAutoCommit(false);
-
-                try {
-
-                    execucaoRepository.finalizar(
-                            connection,
-                            execucaoId,
-                            "ERRO",
-                            registrosLidos,
-                            registrosInseridos,
-                            registrosAtualizados,
-                            e.getMessage()
-                    );
-
-                    connection.commit();
-
-                } catch (Exception erroRegistro) {
-
-                    connection.rollback();
-                    e.addSuppressed(erroRegistro);
+                    e.addSuppressed(erroConexao);
                 }
 
-            } catch (Exception erroConexao) {
+                logger.error("Falha ao processar runtime-state.json na execução {}: {}", execucaoId, e.getMessage());
 
-                e.addSuppressed(erroConexao);
+
+                throw e;
             }
-
-            throw e;
+        } finally {
+            registrarDuracaoCiclo(inicioCiclo);
         }
     }
 
@@ -328,7 +329,14 @@ public class ColetaService {
         ArquivoSnapshotReader snapshotReader =
                 new ArquivoSnapshotReader();
 
-        ArquivoSnapshot snapshot = snapshotReader.ler(arquivo);
+        ArquivoSnapshot snapshot;
+
+        try {
+            snapshot = snapshotReader.ler(arquivo);
+        } catch (Exception e) {
+            logger.error("Falha ao ler o arquivo {}: {}", arquivo.getFileName(), e.getMessage());
+            throw e;
+        }
 
         String hashAtual = snapshot.hash();
 
@@ -360,17 +368,11 @@ public class ColetaService {
         }
 
         if (hashAtual.equals(hashAnterior)) {
-
-            System.out.println("\nArquivo sem alterações: " +
-                    arquivo.getFileName());
-
-            System.out.println("Importação ignorada.");
-
+            logger.info("Arquivo sem alterações: {}. Importação ignorada.", arquivo.getFileName());
             return;
         }
 
-        System.out.println("\nArquivo alterado ou ainda não importado.");
-        System.out.println("Iniciando processamento...");
+        logger.info("Arquivo {} alterado ou ainda não importado. Iniciando processamento.", arquivo.getFileName());
 
         Long execucaoId;
 
@@ -480,10 +482,13 @@ public class ColetaService {
                 }
             }
 
-            System.out.println("\nImportação de viagens concluída!");
-            System.out.println("Registros lidos: " + registrosLidos);
-            System.out.println("Inseridos: " + registrosInseridos);
-            System.out.println("Atualizados: " + registrosAtualizados);
+            logger.info(
+                    "Importação de viagens concluída com sucesso. " +
+                    "Lidos: {}, inseridos: {}, atualizados: {}.",
+                    registrosLidos,
+                    registrosInseridos,
+                    registrosAtualizados
+            );
 
         } catch (Exception e) {
 
@@ -506,16 +511,20 @@ public class ColetaService {
                     connection.commit();
 
                 } catch (Exception erroRegistro) {
-
                     connection.rollback();
-
                     e.addSuppressed(erroRegistro);
                 }
 
             } catch (Exception erroConexao) {
-
                 e.addSuppressed(erroConexao);
             }
+
+            logger.error(
+                    "Falha ao importar {} na execução {}: {}",
+                    arquivo.getFileName(),
+                    execucaoId,
+                    e.getMessage()
+            );
 
             throw e;
         }
@@ -532,24 +541,26 @@ public class ColetaService {
             JornadaCorrecaoRepository jornadaCorrecaoRepository
     ) throws SQLException {
 
-        System.out.println("\n----------------------------");
-        System.out.println("ID: " + shift.id());
-        System.out.println("Simulador: " + shift.simulator());
+        logger.debug(
+                "Processando jornada. ID externo: {}, simulador: {}",
+                shift.id(),
+                shift.simulator()
+        );
 
         if (shift.truck() != null) {
-            System.out.println(
-                    "Caminhão: " +
-                            shift.truck().make() + " " +
-                            shift.truck().model()
-            );
-
-            System.out.println(
-                    "Placa: " + shift.truck().licensePlate()
+            logger.debug(
+                    "Caminhão: {} {}, placa: {}",
+                    shift.truck().make(),
+                    shift.truck().model(),
+                    shift.truck().licensePlate()
             );
         }
 
-        System.out.println("Distância: " + shift.distanceKm() + " km");
-        System.out.println("Velocidade máxima: " + shift.maxSpeedKph() + " km/h");
+        logger.debug(
+                "Distância percorrida: {} km, velocidade máxima: {} km/h",
+                shift.distanceKm(),
+                shift.maxSpeedKph()
+        );
 
         Long caminhaoId = null;
 
@@ -563,9 +574,7 @@ public class ColetaService {
             );
 
         } else {
-            System.out.println(
-                    "Caminhão sem placa identificada. Jornada será salva sem vínculo."
-            );
+            logger.warn("Caminhão sem placa identificada. Jornada será salva sem vínculo.");
         }
 
         Long jornadaId = jornadaRepository.salvarOuAtualizar(
@@ -592,17 +601,18 @@ public class ColetaService {
                 shift
         );
 
-        System.out.println("Jornada processada. ID interno: " + jornadaId);
-        System.out.println("Segmentos processados: " + segmentos);
-        System.out.println("Alertas processados: " + alertas);
-        System.out.println("Correções processadas: " + correcoes);
-
-        System.out.println(
-                "Correções: " +
-                        (shift.corrections() == null
-                                ? 0
-                                : shift.corrections().size())
+        logger.debug(
+                "Jornada processada. ID interno: {}, segmentos: {}, alertas: {}, correções: {}",
+                jornadaId,
+                segmentos,
+                alertas,
+                correcoes
         );
+    }
+
+    private void registrarDuracaoCiclo(long inicioCiclo) {
+        long duracaoMs = (System.nanoTime() - inicioCiclo) /1_000_000;
+        logger.info("Ciclo de coleta finalizado em {} ms.", duracaoMs);
     }
 
 }
