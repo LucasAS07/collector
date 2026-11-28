@@ -109,4 +109,37 @@ class ViagemEventoRepositoryTest {
 
         assertNotEquals(primeiroId, segundoId);
     }
+
+    @Test
+    void deveGerarIdentificadorNoFormatoSha256() throws SQLException {
+        var evento = new TripHistory.TripEvent(
+                "ENGINE",
+                "Evento de teste",
+                "Detalhe de teste",
+                123456L
+        );
+
+        String id = repository.gerarIdExterno("viagem-1", evento);
+
+        assertNotNull(id);
+        assertEquals(64, id.length());
+        assertTrue(id.matches("[a-f0-9]{64}"));
+    }
+
+    @Test
+    void deveGerarIdentificadoresDiferentesParaViagensDiferentes() throws SQLException {
+        var evento = new TripHistory.TripEvent(
+                "ENGINE",
+                "Evento de teste",
+                "Detalhe de teste",
+                123456L
+        );
+
+        String idViagem1 = repository.gerarIdExterno("viagem-1", evento);
+        String idViagem2 = repository.gerarIdExterno("viagem-2", evento);
+
+        assertNotEquals(idViagem1, idViagem2);
+    }
+
+
 }

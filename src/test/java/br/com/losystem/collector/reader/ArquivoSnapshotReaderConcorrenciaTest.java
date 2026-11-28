@@ -123,11 +123,8 @@ class ArquivoSnapshotReaderConcorrenciaTest {
     }
 
     private Path criarArquivo() throws IOException {
-
         Path arquivo = diretorioTemporario.resolve("teste.json");
-
         Files.write(arquivo, new byte[]{1, 2, 3});
-
         return arquivo;
     }
 
@@ -135,13 +132,21 @@ class ArquivoSnapshotReaderConcorrenciaTest {
             long tamanho,
             FileTime modificacao
     ) {
+        return new AtributosFake(tamanho, modificacao, "arquivo-teste");
+    }
 
-        return new AtributosFake(tamanho, modificacao);
+    private BasicFileAttributes atributos(
+            long tamanho,
+            FileTime modificacao,
+            Object fileKey
+    ) {
+        return new AtributosFake(tamanho, modificacao, fileKey);
     }
 
     private record AtributosFake(
             long size,
-            FileTime lastModifiedTime
+            FileTime lastModifiedTime,
+            Object fileKey
     ) implements BasicFileAttributes {
 
         @Override
@@ -176,13 +181,14 @@ class ArquivoSnapshotReaderConcorrenciaTest {
 
         @Override
         public Object fileKey() {
-            return "arquivo-teste";
+            return fileKey;
         }
     }
 
     private static class LeitorSimulado
             extends ArquivoSnapshotReader {
 
+        private boolean bytesInconsistentesNaPrimeiraLeitura;
         private final Queue<BasicFileAttributes> atributos =
                 new ArrayDeque<>();
 
@@ -236,7 +242,86 @@ class ArquivoSnapshotReaderConcorrenciaTest {
                 );
             }
 
+            if (bytesInconsistentesNaPrimeiraLeitura
+                    && quantidadeLeiturasBytes == 1) {
+
+                return new byte[]{1, 2};
+            }
+
             return new byte[]{1, 2, 3};
         }
+
+        void retornarBytesInconsistentesNaPrimeiraLeitura() {
+            bytesInconsistentesNaPrimeiraLeitura = true;
+        }
+    }
+
+    @Test
+    void deveTentarNovamenteQuandoFileKeyForAlterado() throws IOException {
+        Path arquivo = criarArquivo();
+
+        FileTime instante = FileTime.fromMillis(1000);
+
+        LeitorSimulado leitor = new LeitorSimulado();
+
+        leitor.adicionarAtributos(
+                atributos(3, instante, "arquivo-original")
+        );
+
+        leitor.adicionarAtributos(
+                atributos(3, instante, "arquivo-substituido")
+        );
+
+        leitor.adicionarAtributos(
+                atributos(3, instante, "arquivo-substituido")
+        );
+
+        leitor.adicionarAtributos(
+                atributos(3, instante, "arquivo-substituido")
+        );
+
+        ArquivoSnapshot snapshot = leitor.ler(arquivo);
+
+        assertNotNull(snapshot);
+        assertArrayEquals(
+                new byte[]{1, 2, 3},
+                snapshot.conteudo()
+        );
+
+        assertEquals(4, leitor.getQuantidadeLeiturasAtributos());
+        assertEquals(2, leitor.getQuantidadeLeiturasBytes());
+    }
+
+    @Test
+    void deveTentarNovamenteQuandoQuantidadeDeBytesForInconsistente()
+            throws IOException {
+
+        Path arquivo = criarArquivo();
+
+        FileTime instante = FileTime.fromMillis(1000);
+
+        LeitorSimulado leitor = new LeitorSimulado();
+
+        // Primeira tentativa: atributos indicam 3 bytes,
+        // mas a leitura retorna apenas 2.
+        leitor.adicionarAtributos(atributos(3, instante));
+        leitor.adicionarAtributos(atributos(3, instante));
+
+        // Segunda tentativa: leitura consistente.
+        leitor.adicionarAtributos(atributos(3, instante));
+        leitor.adicionarAtributos(atributos(3, instante));
+
+        leitor.retornarBytesInconsistentesNaPrimeiraLeitura();
+
+        ArquivoSnapshot snapshot = leitor.ler(arquivo);
+
+        assertNotNull(snapshot);
+        assertArrayEquals(
+                new byte[]{1, 2, 3},
+                snapshot.conteudo()
+        );
+
+        assertEquals(4, leitor.getQuantidadeLeiturasAtributos());
+        assertEquals(2, leitor.getQuantidadeLeiturasBytes());
     }
 }
